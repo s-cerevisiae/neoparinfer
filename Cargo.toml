@@ -1,0 +1,8 @@
+[package]
+name = "parinfer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+unicode-segmentation = "1.12.0"
+unicode-width = "0.2.0"
