@@ -41,11 +41,13 @@ pub fn paren_run(input: &[Line]) -> Result<HashMap<usize, Delta>, Error> {
         let orig_indent = line.indent;
         let cur_indent = (orig_indent as Delta + cur_delta) as Column;
         // calculate delta
-        let min = context.last().map_or(0, |l| l.opening.col);
+        let min = context.last().map_or(0, |l| l.opening.col + 1);
         let max = context
             .last()
             .and_then(|l| l.first_sibling)
-            .map_or(Column::MAX, |p| p.col);
+            .map_or(Column::MAX, |p| p.col)
+            // the case where first_sibling is clamped
+            .max(min);
         let delta = cur_indent.clamp(min, max) as Delta - orig_indent as Delta;
         if delta != 0 {
             changes.insert(row, delta);
