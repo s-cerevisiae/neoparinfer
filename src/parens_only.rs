@@ -28,6 +28,7 @@ pub enum Side {
     Closing,
 }
 
+#[derive(Debug)]
 struct Context {
     opening: Paren,
     first_sibling: Option<Paren>,
@@ -44,13 +45,15 @@ pub fn paren_run(input: &[Line]) -> Result<HashMap<usize, Delta>, Error> {
         let cur_delta = context.last().map_or(0, |l| l.delta);
         let orig_indent = line.indent;
         // propagates previous indentation changes to current line
-        let cur_indent = (orig_indent as Delta + cur_delta) as Column;
+        let cur_indent = orig_indent.saturating_add_signed(cur_delta);
         // calculate delta
-        let min = context.last().map_or(0, |l| l.opening.col + 1);
+        let min = context
+            .last()
+            .map_or(0, |l| (l.opening.col + 1).saturating_add_signed(cur_delta));
         let max = context
             .last()
             .and_then(|l| l.first_sibling)
-            .map_or(Column::MAX, |p| p.col)
+            .map_or(Column::MAX, |p| p.col.saturating_add_signed(cur_delta))
             // the case where first_sibling is clamped
             .max(min);
         let delta = cur_indent.clamp(min, max) as Delta - orig_indent as Delta;
@@ -241,10 +244,20 @@ a b
                                 (code like this)
                                 ))"#]]
         .assert_eq(&fix_by_paren(input));
-    }
 
-    #[test]
-    fn paren_failing_case() {
+        let input = r"
+(
+(
+)
+)"
+        .trim_start();
+        expect![[r#"
+            (
+             (
+              )
+             )"#]]
+        .assert_eq(&fix_by_paren(input));
+
         let input = r"
 (im a c user (
     who prefer
@@ -260,23 +273,6 @@ a b
                             code like this
                            )
                           ))"#]]
-        .assert_eq(&fix_by_paren(input));
-    }
-
-    #[test]
-    fn paren_fail_case_reproducer() {
-        let input = r"
-(
-(
-)
-)"
-        .trim_start();
-
-        expect![[r#"
-            (
-             (
-             )
-             )"#]]
         .assert_eq(&fix_by_paren(input));
     }
 }
