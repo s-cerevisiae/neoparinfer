@@ -47,13 +47,11 @@ pub fn paren_run(input: &[Line]) -> Result<HashMap<usize, Delta>, Error> {
         // propagates previous indentation changes to current line
         let cur_indent = orig_indent.saturating_add_signed(cur_delta);
         // calculate delta
-        let min = context
-            .last()
-            .map_or(0, |l| (l.opening.col + 1).saturating_add_signed(cur_delta));
+        let min = context.last().map_or(0, |l| l.opening.col + 1);
         let max = context
             .last()
             .and_then(|l| l.first_sibling)
-            .map_or(Column::MAX, |p| p.col.saturating_add_signed(cur_delta))
+            .map_or(Column::MAX, |p| p.col)
             // the case where first_sibling is clamped
             .max(min);
         let delta = cur_indent.clamp(min, max) as Delta - orig_indent as Delta;
@@ -68,8 +66,12 @@ pub fn paren_run(input: &[Line]) -> Result<HashMap<usize, Delta>, Error> {
                     context
                         .last_mut()
                         .map(|l| l.first_sibling.get_or_insert(*par));
+                    let par = Paren {
+                        col: par.col.saturating_add_signed(delta),
+                        ..*par
+                    };
                     context.push(Context {
-                        opening: *par,
+                        opening: par,
                         first_sibling: None,
                         delta,
                     });
@@ -273,6 +275,37 @@ a b
                             code like this
                            )
                           ))"#]]
+        .assert_eq(&fix_by_paren(input));
+
+        let input = r"
+(defn foo
+  ((a)
+    (foo a 1))
+  ((a b)
+    (let (sum (+ a b)
+          prod (* a b)
+          result ( ; gather vals
+            :sum sum
+            :prod prod
+          ))
+      result)
+    ; TODO: something
+    ))"
+        .trim_start();
+        expect![[r#"
+            (defn foo
+              ((a)
+               (foo a 1))
+              ((a b)
+               (let (sum (+ a b)
+                     prod (* a b)
+                     result ( ; gather vals
+                             :sum sum
+                             :prod prod
+                             ))
+                 result)
+               ; TODO: something
+               ))"#]]
         .assert_eq(&fix_by_paren(input));
     }
 }
