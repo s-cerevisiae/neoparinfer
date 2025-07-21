@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, iter};
 
 #[derive(Debug)]
 pub enum Error {
@@ -90,10 +90,67 @@ pub fn paren_run(input: &[Line]) -> Result<HashMap<usize, Delta>, Error> {
     Ok(changes)
 }
 
-pub fn indent_run(input: &[Line]) -> Result<Vec<Vec<Paren>>, ()> {
-    for (row, line) in input.iter().enumerate() {}
+pub fn indent_run(input: &[Line]) -> Result<(Vec<(usize, Paren)>, Vec<usize>), ()> {
+    // assumption: indentation here is in increasing order. otherwise they are already solved.
+    let mut unpaired_lparen: Vec<Paren> = Vec::new();
+    let mut paired: Vec<(Paren, Paren, usize)> = Vec::new();
+    let mut to_be_deleted = Vec::new();
+    let mut to_be_added = Vec::new();
 
-    todo!()
+    for (row, line) in input
+        .iter()
+        .chain(iter::once(&Line {
+            parens: Vec::new(),
+            indent: 0,
+        }))
+        .enumerate()
+    {
+        // iterate over unpaired left-parens, push a paren to the last line if current line indents
+        // further than lparen itself.
+        // (stop when there's an corresponding rparen)
+        while let Some(lp) = unpaired_lparen.last() {
+            if line.indent <= lp.col {
+                to_be_added.push(row - 1);
+                unpaired_lparen.pop();
+            } else {
+                break;
+            }
+        }
+
+        // iterate over paired parens,
+        while let Some((lp, rp, rp_row)) = paired.last() {
+            if line.indent <= lp.col {
+                if row - 1 != *rp_row {
+                    to_be_added.push(row - 1);
+                    to_be_deleted.push((*rp_row, *rp));
+                }
+                paired.pop();
+            } else {
+                break;
+            }
+        }
+
+        for p in &line.parens {
+            match p.side {
+                Side::Opening => {
+                    unpaired_lparen.push(*p);
+                }
+                Side::Closing => {
+                    if let Some(lp) = unpaired_lparen.pop()
+                        && lp.kind == p.kind
+                    {
+                        if !p.mid_line {
+                            paired.push((lp, *p, row));
+                        }
+                    } else {
+                        to_be_deleted.push((row, *p));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok((to_be_deleted, to_be_added))
 }
 
 #[cfg(test)]
@@ -373,5 +430,58 @@ a b
                c
                d)"#]]
         .assert_eq(&fix_by_paren(input));
+    }
+
+    fn apply_paren_changes(input: &str, changes: &(Vec<(usize, Paren)>, Vec<usize>)) -> String {
+        let mut result = Vec::new();
+        let (del, add) = changes;
+        for (row, line) in input.lines().enumerate() {
+            let mut line = line.to_owned();
+            for (r, p) in del.iter().rev() {
+                if *r == row {
+                    line.remove(p.col);
+                }
+            }
+            let count_append = add.iter().filter(|&&r| r == row).count();
+            line.push_str(&")".repeat(count_append));
+            result.push(line);
+        }
+        result.join("\n")
+    }
+
+    #[test]
+    fn test_indent_mode() {
+        let input = "()";
+        let lines = simple_parse(input);
+        let result = indent_run(&lines);
+        println!("{result:?}");
+
+        let input = "(";
+        let lines = simple_parse(input);
+        let changes = indent_run(&lines);
+        println!("{changes:?}");
+        println!("{}", apply_paren_changes(input, &changes.unwrap()));
+
+        let input = "())";
+        let lines = simple_parse(input);
+        let changes = indent_run(&lines);
+        println!("{changes:?}");
+        println!("{}", apply_paren_changes(input, &changes.unwrap()));
+
+
+    }
+    #[test]
+    fn test_indent_singular() {
+        let input = "
+(well (known fact
+  (lisp
+    (is)
+      indentation
+      based"
+            .trim_start();
+        let lines = simple_parse(input);
+        let changes = indent_run(&lines);
+        println!("{changes:?}");
+        println!("{}", apply_paren_changes(input, &changes.unwrap()));
     }
 }
