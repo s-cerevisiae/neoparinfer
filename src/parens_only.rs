@@ -20,6 +20,7 @@ pub struct Paren {
     col: Column,
     kind: char,
     side: Side,
+    mid_line: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -31,7 +32,6 @@ pub enum Side {
 #[derive(Debug)]
 struct Context {
     opening: Paren,
-    first_sibling: Option<Paren>,
     delta: Delta,
 }
 
@@ -40,6 +40,7 @@ struct Context {
 pub fn paren_run(input: &[Line]) -> Result<HashMap<usize, Delta>, Error> {
     let mut changes = HashMap::new();
 
+    let mut max_indent = Column::MAX;
     let mut context: Vec<Context> = Vec::new();
     for (row, line) in input.iter().enumerate() {
         let cur_delta = context.last().map_or(0, |l| l.delta);
@@ -48,10 +49,7 @@ pub fn paren_run(input: &[Line]) -> Result<HashMap<usize, Delta>, Error> {
         let cur_indent = orig_indent.saturating_add_signed(cur_delta);
         // calculate delta
         let min = context.last().map_or(0, |l| l.opening.col + 1);
-        let max = context
-            .last()
-            .and_then(|l| l.first_sibling)
-            .map_or(Column::MAX, |p| p.col)
+        let max = max_indent
             // the case where first_sibling is clamped
             .max(min);
         let delta = cur_indent.clamp(min, max) as Delta - orig_indent as Delta;
@@ -63,24 +61,26 @@ pub fn paren_run(input: &[Line]) -> Result<HashMap<usize, Delta>, Error> {
         for par in &line.parens {
             match par.side {
                 Side::Opening => {
-                    context
-                        .last_mut()
-                        .map(|l| l.first_sibling.get_or_insert(*par));
                     let par = Paren {
                         col: par.col.saturating_add_signed(delta),
                         ..*par
                     };
                     context.push(Context {
                         opening: par,
-                        first_sibling: None,
                         delta,
                     });
+                    max_indent = Column::MAX;
                 }
                 Side::Closing => {
                     let cur_layer = context.pop().ok_or(Error::Unbalanced)?;
                     // todo: pairing usually doesn't work like that
                     if cur_layer.opening.kind != par.kind {
                         return Err(Error::Unbalanced);
+                    }
+                    if !par.mid_line {
+                        max_indent = cur_layer.opening.col;
+                    } else {
+                        max_indent = Column::MAX;
                     }
                 }
             }
@@ -108,22 +108,25 @@ mod tests {
             .map(|input_line| {
                 let trimmed = input_line.trim_start_matches(' ');
                 let indent = input_line.len() - trimmed.len();
-                let parens = input_line
-                    .chars()
-                    .enumerate()
-                    .filter_map(|(col, c)| {
-                        let side = match c {
-                            '(' => Side::Opening,
-                            ')' => Side::Closing,
-                            _ => return None,
-                        };
-                        Some(Paren {
-                            kind: '(',
-                            col,
-                            side,
-                        })
+                let mut parens: Vec<Paren> = Vec::new();
+                for (col, c) in input_line.chars().enumerate() {
+                    let side = match c {
+                        '(' => Side::Opening,
+                        ')' => Side::Closing,
+                        _ => {
+                            if let Some(p) = parens.last_mut() {
+                                p.mid_line = true;
+                            }
+                            continue;
+                        }
+                    };
+                    parens.push(Paren {
+                        kind: '(',
+                        col,
+                        side,
+                        mid_line: false,
                     })
-                    .collect();
+                }
                 Line { parens, indent }
             })
             .collect()
@@ -160,11 +163,13 @@ mod tests {
                             col: 0,
                             kind: '(',
                             side: Opening,
+                            mid_line: true,
                         },
                         Paren {
                             col: 2,
                             kind: '(',
                             side: Closing,
+                            mid_line: false,
                         },
                     ],
                     indent: 0,
@@ -191,6 +196,7 @@ mod tests {
                             col: 0,
                             kind: '(',
                             side: Opening,
+                            mid_line: false,
                         },
                     ],
                     indent: 0,
@@ -201,6 +207,7 @@ mod tests {
                             col: 1,
                             kind: '(',
                             side: Closing,
+                            mid_line: false,
                         },
                     ],
                     indent: 1,
@@ -306,6 +313,65 @@ a b
                  result)
                ; TODO: something
                ))"#]]
+        .assert_eq(&fix_by_paren(input));
+    }
+
+    #[test]
+    fn first_sibling_not_enough() {
+        let input = r"
+(    (a b)
+  (c d)
+    e
+ )"
+        .trim_start();
+        expect![[r#"
+            (    (a b)
+              (c d)
+              e
+             )"#]]
+        .assert_eq(&fix_by_paren(input));
+
+        let input = r"
+((a) (b)
+     (c d)
+     e)"
+        .trim_start();
+        expect![[r#"
+            ((a) (b)
+                 (c d)
+                 e)"#]]
+        .assert_eq(&fix_by_paren(input));
+    }
+
+    #[test]
+    fn pull_back() {
+        let input = r"
+()
+ b"
+        .trim_start();
+        expect![[r#"
+            ()
+            b"#]]
+        .assert_eq(&fix_by_paren(input));
+
+        let input = r"
+(a (b) c
+       d)"
+        .trim_start();
+        expect![[r#"
+            (a (b) c
+                   d)"#]]
+        .assert_eq(&fix_by_paren(input));
+
+        let input = r"
+(a (b)
+     c
+       d)"
+        .trim_start();
+        expect![[r#"
+            (a (b)
+               c
+               d)"#]]
         .assert_eq(&fix_by_paren(input));
     }
 }
