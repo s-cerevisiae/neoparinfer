@@ -9,3 +9,4 @@ unicode-width = "0.2.0"
 
 [dev-dependencies]
 expect-test = "1.5.1"
+indoc = "2.0.6"

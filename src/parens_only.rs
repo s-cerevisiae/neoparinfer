@@ -1,4 +1,7 @@
-use std::{collections::HashMap, iter};
+use std::{
+    collections::{HashMap, VecDeque},
+    iter,
+};
 
 #[derive(Debug)]
 pub enum Error {
@@ -7,7 +10,6 @@ pub enum Error {
 
 type Column = usize;
 type Delta = isize;
-type Level = usize;
 
 #[derive(Clone, Debug)]
 pub struct Line {
@@ -56,6 +58,8 @@ pub fn paren_run(input: &[Line]) -> Result<HashMap<usize, Delta>, Error> {
         if delta != 0 {
             changes.insert(row, delta);
         }
+        // this mimics the original parinfer clamping
+        // max_indent = Column::MAX;
 
         // maintain stacks
         for par in &line.parens {
@@ -90,10 +94,10 @@ pub fn paren_run(input: &[Line]) -> Result<HashMap<usize, Delta>, Error> {
     Ok(changes)
 }
 
-pub fn indent_run(input: &[Line]) -> Result<(Vec<(usize, Paren)>, Vec<usize>), ()> {
+pub fn indent_run(input: &[Line]) -> (Vec<(usize, Paren)>, Vec<usize>) {
     // assumption: indentation here is in increasing order. otherwise they are already solved.
     let mut unpaired_lparen: Vec<Paren> = Vec::new();
-    let mut paired: Vec<(Paren, Paren, usize)> = Vec::new();
+    let mut paired: VecDeque<(Paren, Paren, usize)> = VecDeque::new();
     let mut to_be_deleted = Vec::new();
     let mut to_be_added = Vec::new();
 
@@ -118,13 +122,14 @@ pub fn indent_run(input: &[Line]) -> Result<(Vec<(usize, Paren)>, Vec<usize>), (
         }
 
         // iterate over paired parens,
-        while let Some((lp, rp, rp_row)) = paired.last() {
+        // TODO: reverse it
+        while let Some((lp, rp, rp_row)) = paired.front() {
             if line.indent <= lp.col {
                 if row - 1 != *rp_row {
                     to_be_added.push(row - 1);
                     to_be_deleted.push((*rp_row, *rp));
                 }
-                paired.pop();
+                paired.pop_front();
             } else {
                 break;
             }
@@ -140,7 +145,7 @@ pub fn indent_run(input: &[Line]) -> Result<(Vec<(usize, Paren)>, Vec<usize>), (
                         && lp.kind == p.kind
                     {
                         if !p.mid_line {
-                            paired.push((lp, *p, row));
+                            paired.push_back((lp, *p, row));
                         }
                     } else {
                         to_be_deleted.push((row, *p));
@@ -150,12 +155,13 @@ pub fn indent_run(input: &[Line]) -> Result<(Vec<(usize, Paren)>, Vec<usize>), (
         }
     }
 
-    Ok((to_be_deleted, to_be_added))
+    (to_be_deleted, to_be_added)
 }
 
 #[cfg(test)]
 mod tests {
     use expect_test::expect;
+    use indoc::indoc;
 
     use super::*;
 
@@ -437,11 +443,16 @@ a b
         let (del, add) = changes;
         for (row, line) in input.lines().enumerate() {
             let mut line = line.to_owned();
+            let mut to_remove = Vec::new();
             for (r, p) in del.iter().rev() {
                 if *r == row {
-                    line.remove(p.col);
+                    to_remove.push(p.col);
                 }
             }
+            to_remove.sort_unstable();
+            to_remove.iter().rev().for_each(|i| {
+                line.remove(*i);
+            });
             let count_append = add.iter().filter(|&&r| r == row).count();
             line.push_str(&")".repeat(count_append));
             result.push(line);
@@ -449,39 +460,45 @@ a b
         result.join("\n")
     }
 
+    fn fix_by_indent(input: &str) -> String {
+        apply_paren_changes(input, &indent_run(&simple_parse(input)))
+    }
+
     #[test]
     fn test_indent_mode() {
         let input = "()";
-        let lines = simple_parse(input);
-        let result = indent_run(&lines);
-        println!("{result:?}");
+        expect!["()"].assert_eq(&fix_by_indent(input));
 
         let input = "(";
-        let lines = simple_parse(input);
-        let changes = indent_run(&lines);
-        println!("{changes:?}");
-        println!("{}", apply_paren_changes(input, &changes.unwrap()));
+        expect!["()"].assert_eq(&fix_by_indent(input));
 
         let input = "())";
-        let lines = simple_parse(input);
-        let changes = indent_run(&lines);
-        println!("{changes:?}");
-        println!("{}", apply_paren_changes(input, &changes.unwrap()));
+        expect!["()"].assert_eq(&fix_by_indent(input));
 
+        let input = indoc! {r"
+            (well (known fact
+              (lisp
+                (is)
+                  indentation
+                  based
+        "};
+        expect![[r#"
+            (well (known fact)
+              (lisp
+                (is
+                  indentation
+                  based)))"#]]
+        .assert_eq(&fix_by_indent(input));
 
-    }
-    #[test]
-    fn test_indent_singular() {
-        let input = "
-(well (known fact
-  (lisp
-    (is)
-      indentation
-      based"
-            .trim_start();
-        let lines = simple_parse(input);
-        let changes = indent_run(&lines);
-        println!("{changes:?}");
-        println!("{}", apply_paren_changes(input, &changes.unwrap()));
+        let input = indoc! {r"
+            (paired
+              (paired))
+             (move this)
+        "};
+        expect![[r#"
+            (paired
+              (paired)
+             (move this))"#]]
+        .assert_eq(&fix_by_indent(input));
     }
 }
