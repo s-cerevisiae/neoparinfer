@@ -277,10 +277,10 @@ mod tests {
                 },
             ]
         "#]]
-        .assert_debug_eq(&simple_parse(
-            r"(
- )",
-        ));
+        .assert_debug_eq(&simple_parse(indoc! {r"
+            (
+             )
+        "}));
     }
 
     #[test]
@@ -288,41 +288,43 @@ mod tests {
         let input = "()";
         expect!["()"].assert_eq(&fix_by_paren(input));
 
-        let input = r"(
-)";
+        let input = indoc! {"
+            (
+            )
+        "};
         expect![[r#"
             (
              )"#]]
         .assert_eq(&fix_by_paren(input));
 
-        let input = r"
-(
-a b
- c)"
-        .trim_start();
+        let input = indoc! {r"
+            (
+            a b
+             c)
+        "};
         expect![[r#"
             (
              a b
              c)"#]]
         .assert_eq(&fix_by_paren(input));
 
-        let input = r"
-(im a haskell user (who prefer
-    (code like this)
-))"
-        .trim_start();
+        let input = indoc! {"
+            (im a haskell user (who prefer
+                (code like this)
+            ))
+        "};
         expect![[r#"
             (im a haskell user (who prefer
                                 (code like this)
                                 ))"#]]
         .assert_eq(&fix_by_paren(input));
 
-        let input = r"
-(
-(
-)
-)"
-        .trim_start();
+        let input = indoc! {"
+            (
+            (
+            )
+            )
+        "};
         expect![[r#"
             (
              (
@@ -330,14 +332,14 @@ a b
              )"#]]
         .assert_eq(&fix_by_paren(input));
 
-        let input = r"
-(im a c user (
-    who prefer
- (
-   code like this
- )
-))"
-        .trim_start();
+        let input = indoc! {"
+            (im a c user (
+                who prefer
+             (
+               code like this
+             )
+            ))
+        "};
         expect![[r#"
             (im a c user (
                           who prefer
@@ -347,21 +349,21 @@ a b
                           ))"#]]
         .assert_eq(&fix_by_paren(input));
 
-        let input = r"
-(defn foo
-  ((a)
-    (foo a 1))
-  ((a b)
-    (let (sum (+ a b)
-          prod (* a b)
-          result ( ; gather vals
-            :sum sum
-            :prod prod
-          ))
-      result)
-    ; TODO: something
-    ))"
-        .trim_start();
+        let input = indoc! {"
+            (defn foo
+              ((a)
+                (foo a 1))
+              ((a b)
+                (let (sum (+ a b)
+                      prod (* a b)
+                      result ( ; gather vals
+                        :sum sum
+                        :prod prod
+                      ))
+                  result)
+                ; TODO: something
+                ))
+        "};
         expect![[r#"
             (defn foo
               ((a)
@@ -381,12 +383,12 @@ a b
 
     #[test]
     fn first_sibling_not_enough() {
-        let input = r"
-(    (a b)
-  (c d)
-    e
- )"
-        .trim_start();
+        let input = indoc! {"
+            (    (a b)
+              (c d)
+                e
+             )
+        "};
         expect![[r#"
             (    (a b)
               (c d)
@@ -394,11 +396,11 @@ a b
              )"#]]
         .assert_eq(&fix_by_paren(input));
 
-        let input = r"
-((a) (b)
-     (c d)
-     e)"
-        .trim_start();
+        let input = indoc! {"
+            ((a) (b)
+                 (c d)
+                 e)
+        "};
         expect![[r#"
             ((a) (b)
                  (c d)
@@ -408,29 +410,29 @@ a b
 
     #[test]
     fn pull_back() {
-        let input = r"
-()
- b"
-        .trim_start();
+        let input = indoc! {"
+            ()
+             b
+        "};
         expect![[r#"
             ()
             b"#]]
         .assert_eq(&fix_by_paren(input));
 
-        let input = r"
-(a (b) c
-       d)"
-        .trim_start();
+        let input = indoc! {"
+            (a (b) c
+                   d)
+        "};
         expect![[r#"
             (a (b) c
                    d)"#]]
         .assert_eq(&fix_by_paren(input));
 
-        let input = r"
-(a (b)
-     c
-       d)"
-        .trim_start();
+        let input = indoc! {"
+            (a (b)
+                 c
+                   d)
+        "};
         expect![[r#"
             (a (b)
                c
@@ -493,12 +495,12 @@ a b
         let input = indoc! {r"
             (paired
               (paired))
-             (move this)
+             (move here)
         "};
         expect![[r#"
             (paired
               (paired)
-             (move this))"#]]
+             (move here))"#]]
         .assert_eq(&fix_by_indent(input));
     }
 }
