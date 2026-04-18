@@ -5,11 +5,12 @@ currently incomplete (not quite usable yet).
 
 TODO:
 - [x] [Paren mode](./src/parens_only.rs)
-- [ ] Indent mode (needs more testing)
+- [x] Indent mode (needs more testing)
+- [ ] Lexer module for a few languages and interface design
+- [ ] Smart mode
 - [ ] Clean up the repo so it looks less like a laboratory disaster
 - [ ] Multi-line tokens
 - [ ] Unicode width
-- [ ] Smart mode
 
 ## Idea
 
