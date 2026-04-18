@@ -14,16 +14,16 @@ type Delta = isize;
 
 #[derive(Clone, Debug)]
 pub struct Line {
-    parens: Vec<Paren>,
-    indent: Column,
+    pub parens: Vec<Paren>,
+    pub indent: Column,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Paren {
-    col: Column,
-    kind: char,
-    side: Side,
-    mid_line: bool,
+    pub col: Column,
+    pub kind: char,
+    pub side: Side,
+    pub mid_line: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -471,6 +471,21 @@ mod tests {
                c
                d)
             (e f)"#]]
+        .assert_eq(&fix_by_paren(input));
+
+        let input = indoc! {"
+                (a (b)
+                    c
+                      d)
+             (e f)
+            g
+        "};
+        expect![[r#"
+                (a (b)
+                   c
+                   d)
+             (e f)
+            g"#]]
         .assert_eq(&fix_by_paren(input));
     }
 
