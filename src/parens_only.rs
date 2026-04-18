@@ -555,4 +555,48 @@ mod tests {
              (move here))"#]]
         .assert_eq(&fix_by_indent(input));
     }
+
+    use proptest::prelude::*;
+
+    type PropResult = Result<(), TestCaseError>;
+
+    fn assert_balanced(s: &str) -> PropResult {
+        let mut lp_count = 0;
+        for c in s.chars() {
+            match c {
+                '(' => lp_count += 1,
+                ')' => lp_count -= 1,
+                _ => (),
+            }
+            prop_assert!(lp_count >= 0);
+        }
+        prop_assert_eq!(lp_count, 0);
+        Ok(())
+    }
+
+    fn assert_indent(s: &str) -> PropResult {
+        let mut lp = Vec::new();
+        for (row, line) in s.lines().enumerate() {
+            for (col, c) in line.chars().enumerate() {
+                match c {
+                    '(' => lp.push((row, col)),
+                    ')' => {
+                        let (_, lp_col) = lp.pop().expect("balanceness is tested");
+                        prop_assert!(lp_col < col);
+                    }
+                    _ => (),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    proptest! {
+        #[test]
+        fn indent_fixes_random_parens(input in "[() \n]*") {
+            let fixed = fix_by_indent(&input);
+            assert_balanced(&fixed)?;
+            assert_indent(&fixed)?;
+        }
+    }
 }
