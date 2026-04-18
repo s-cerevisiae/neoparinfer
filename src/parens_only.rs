@@ -8,6 +8,7 @@ pub enum Error {
     Unbalanced,
 }
 
+type Row = usize;
 type Column = usize;
 type Delta = isize;
 
@@ -37,9 +38,23 @@ struct Context {
     delta: Delta,
 }
 
+pub enum Edit {
+    Indent(EditIndent),
+    Paren(EditParen),
+}
+
+pub struct EditIndent {
+    pub changes: HashMap<Row, Delta>,
+}
+
+pub struct EditParen {
+    pub deletions: Vec<(Row, Paren)>,
+    pub additions: Vec<(Row, char)>,
+}
+
 /// A "parentheses" run to fix indentation based on parens.
 /// An implementation of "paren mode" in Parinfer.
-pub fn paren_run(input: &[Line]) -> Result<HashMap<usize, Delta>, Error> {
+pub fn paren_run(input: &[Line]) -> Result<EditIndent, Error> {
     let mut changes = HashMap::new();
 
     let mut max_indent = Column::MAX;
@@ -91,10 +106,10 @@ pub fn paren_run(input: &[Line]) -> Result<HashMap<usize, Delta>, Error> {
         }
     }
 
-    Ok(changes)
+    Ok(EditIndent { changes })
 }
 
-pub fn indent_run(input: &[Line]) -> (Vec<(usize, Paren)>, Vec<usize>) {
+pub fn indent_run(input: &[Line]) -> EditParen {
     // assumption: indentation here is in increasing order. otherwise they are already solved.
     let mut unpaired_lparen: Vec<Paren> = Vec::new();
     let mut paired: VecDeque<(Paren, Paren, usize)> = VecDeque::new();
@@ -114,7 +129,7 @@ pub fn indent_run(input: &[Line]) -> (Vec<(usize, Paren)>, Vec<usize>) {
         // (stop when there's an corresponding rparen)
         while let Some(lp) = unpaired_lparen.last() {
             if line.indent <= lp.col {
-                to_be_added.push(row - 1);
+                to_be_added.push((row - 1, lp.kind));
                 unpaired_lparen.pop();
             } else {
                 break;
@@ -126,7 +141,7 @@ pub fn indent_run(input: &[Line]) -> (Vec<(usize, Paren)>, Vec<usize>) {
         while let Some((lp, rp, rp_row)) = paired.front() {
             if line.indent <= lp.col {
                 if row - 1 != *rp_row {
-                    to_be_added.push(row - 1);
+                    to_be_added.push((row - 1, lp.kind));
                     to_be_deleted.push((*rp_row, *rp));
                 }
                 paired.pop_front();
@@ -155,7 +170,10 @@ pub fn indent_run(input: &[Line]) -> (Vec<(usize, Paren)>, Vec<usize>) {
         }
     }
 
-    (to_be_deleted, to_be_added)
+    EditParen {
+        deletions: to_be_deleted,
+        additions: to_be_added,
+    }
 }
 
 #[cfg(test)]
@@ -195,10 +213,10 @@ mod tests {
             .collect()
     }
 
-    fn apply_indent_changes(input: &str, changes: &HashMap<usize, Delta>) -> String {
+    fn apply_indent_edits(input: &str, edit: &EditIndent) -> String {
         let mut result = String::new();
         for (i, l) in input.lines().enumerate() {
-            let delta = changes.get(&i).copied().unwrap_or(0);
+            let delta = edit.changes.get(&i).copied().unwrap_or(0);
             if delta < 0 {
                 result.push_str(&l[delta.unsigned_abs()..]);
             } else {
@@ -212,8 +230,8 @@ mod tests {
     }
 
     fn fix_by_paren(input: &str) -> String {
-        let changes = paren_run(&simple_parse(input)).unwrap();
-        apply_indent_changes(input, &changes)
+        let edit = paren_run(&simple_parse(input)).unwrap();
+        apply_indent_edits(input, &edit)
     }
 
     #[test]
@@ -440,13 +458,32 @@ mod tests {
         .assert_eq(&fix_by_paren(input));
     }
 
-    fn apply_paren_changes(input: &str, changes: &(Vec<(usize, Paren)>, Vec<usize>)) -> String {
+    #[test]
+    fn multi_exprs() {
+        let input = indoc! {"
+            (a (b)
+                c
+                  d)
+            (e f)
+        "};
+        expect![[r#"
+            (a (b)
+               c
+               d)
+            (e f)"#]]
+        .assert_eq(&fix_by_paren(input));
+    }
+
+    fn apply_paren_edits(input: &str, edit: &EditParen) -> String {
         let mut result = Vec::new();
-        let (del, add) = changes;
+        let EditParen {
+            deletions,
+            additions,
+        } = edit;
         for (row, line) in input.lines().enumerate() {
             let mut line = line.to_owned();
             let mut to_remove = Vec::new();
-            for (r, p) in del.iter().rev() {
+            for (r, p) in deletions.iter().rev() {
                 if *r == row {
                     to_remove.push(p.col);
                 }
@@ -455,7 +492,7 @@ mod tests {
             to_remove.iter().rev().for_each(|i| {
                 line.remove(*i);
             });
-            let count_append = add.iter().filter(|&&r| r == row).count();
+            let count_append = additions.iter().filter(|&&(r, _)| r == row).count();
             line.push_str(&")".repeat(count_append));
             result.push(line);
         }
@@ -463,7 +500,7 @@ mod tests {
     }
 
     fn fix_by_indent(input: &str) -> String {
-        apply_paren_changes(input, &indent_run(&simple_parse(input)))
+        apply_paren_edits(input, &indent_run(&simple_parse(input)))
     }
 
     #[test]
