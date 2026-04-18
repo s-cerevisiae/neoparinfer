@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 pub mod error;
 
 use std::{borrow::Cow, collections::HashMap};
@@ -87,10 +89,10 @@ fn handle_change_delta(
     options: &Options,
     changes: &HashMap<(usize, usize), Change>,
 ) {
-    if options.smart || options.mode == Mode::Paren {
-        if let Some(change) = changes.get(&(pos.row, pos.col)) {
-            line_state.indent_delta += change.new_end_col as Delta - change.old_end_col as Delta;
-        }
+    if (options.smart || options.mode == Mode::Paren)
+        && let Some(change) = changes.get(&(pos.row, pos.col))
+    {
+        line_state.indent_delta += change.new_end_col as Delta - change.old_end_col as Delta;
     }
 }
 
