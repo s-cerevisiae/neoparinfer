@@ -192,7 +192,13 @@ mod tests {
                 let mut parens: Vec<Paren> = Vec::new();
                 for (col, c) in input_line.chars().enumerate() {
                     let side = match c {
-                        '(' => Side::Opening,
+                        '(' => {
+                            parens
+                                .iter_mut()
+                                .filter(|p| matches!(p.side, Side::Closing))
+                                .for_each(|p| p.mid_line = true);
+                            Side::Opening
+                        }
                         ')' => Side::Closing,
                         _ => {
                             if let Some(p) = parens.last_mut() {
